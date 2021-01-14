@@ -19,6 +19,8 @@ Author:
 
 */
 
+/// \file
+
 #ifndef _MCCI_Catena_SM70_h_
 #define _MCCI_Catena_SM70_h_	/* prevent multiple includes */
 
@@ -27,6 +29,7 @@ Author:
 #include <Arduino.h>
 #include <cstdint>
 
+/// namespace for this library.
 namespace McciCatenaSm70 {
 
 /// create a version number for comparison
@@ -69,9 +72,9 @@ getLocal(std::uint32_t v)
 /// version of library, for use by clients in static_asserts
 static constexpr std::uint32_t kVersion = makeVersion(0,1,0);
 
-/// internal port class, used for providing useful, constant behavior to the template class,
+/// Internal port class, used for providing useful, constant behavior to the template class,
 /// and also useful for removing templating from the main class so we can separate header
-/// from implementation
+/// from implementation.
 class cSerialAbstract
         {
 public:
@@ -116,7 +119,7 @@ public:
                 }
         };
 
-/// create a class that is abstract but uses a physical Arduino serial port of type T.
+/// declare a class derived from cSerialAbstract that uses a physical Arduino serial port of type T.
 template <class T> class cSerial : public cSerialAbstract
         {
 public:
@@ -175,15 +178,18 @@ private:
         T *m_pPort;	/// pointer to physical port that this class wraps.
         };
 
+/// represent an Aeroqual SM70 sensor connected via RS485
 class cSM70
 	{
 private:
+	/// calcuate checksum over a buffer.
 	static std::uint8_t checksum(const std::uint8_t *pBuf, size_t nBuf, std::uint8_t cs = 0)
 		{
 		for (; nBuf > 0; ++pBuf, --nBuf)
 			cs += *pBuf;
 		}
 
+	/// fetch a little-endian 32-bit number as an unsigned integer.
 	static std::uint32_t get32le(const std::uint8_t (&a)[4])
 		{
 		return (std::uint32_t(a[3]) << 24) | 
@@ -193,20 +199,7 @@ private:
 		}
 
 public:
-	enum class Header : std::uint8_t
-		{
-		BASE = 0x55,		/// indicates message from computer to SM70
-		SENSOR = 0xAA,		/// indicates messsage from SM70 to computer
-		};
-
-	enum class MessageType : std::uint8_t
-		{
-		DATA_REPORT2 = 0x0F,	/// a data report, but DATA2 is not valid.
-		DATA_REPORT = 0x10,	/// a data report, sensor to computer
-		DATA_REQUEST = 0x1A,	/// request a data report
-		SENSOR_INFO = 0xFB,	/// request or indicate a sensor-info message
-		};
-
+	/// error codes for errors returned by APIs in this module.
 	enum class Error : std::uint8_t
 		{
 		kOk = 0,		/// success
@@ -216,6 +209,23 @@ public:
 		kBadNameLength,		/// SensorInfoReport::m_nameLength is not legal
 		};
 	
+	/// the legal header bytes for a message.
+	enum class Header : std::uint8_t
+		{
+		BASE = 0x55,		/// indicates message from computer to SM70
+		SENSOR = 0xAA,		/// indicates messsage from SM70 to computer
+		};
+
+	/// the legal message type bytes for a message
+	enum class MessageType : std::uint8_t
+		{
+		DATA_REPORT2 = 0x0F,	/// a data report, but DATA2 is not valid.
+		DATA_REPORT = 0x10,	/// a data report, sensor to computer
+		DATA_REQUEST = 0x1A,	/// request a data report
+		SENSOR_INFO = 0xFB,	/// request or indicate a sensor-info message
+		};
+
+	/// cooked sensor status codes.
 	enum class SensorStatus : std::int8_t
 		{
 		kInvalid = -1,		/// invalid status in message
@@ -224,6 +234,7 @@ public:
 		kAging = 2,		/// sensor is aging
 		};
 
+	/// cooked display format codes.
 	enum class DisplayFormat : std::uint8_t
 		{
 		kInvalid = 0,		/// invalid result seen
@@ -233,6 +244,7 @@ public:
 		k4_0 = 4,		/// ####.
 		};
 
+	/// the standard data request message from computer to sensor.
 	class DataRequest
 		{
 	public:
@@ -245,6 +257,25 @@ public:
 			{
 			}
 
+		/// return pointer to the message body
+		std::uint8_t *getPointer()
+			{
+			return (std::uint8_t *) this;
+			}
+
+		/// return pointer to the message body (const variant)
+		const std::uint8_t *getPointer() const
+			{
+			return (const std::uint8_t *) this;
+			}
+
+		/// get size of message body
+		size_t getSize() const
+			{
+			static_assert(sizeof(*this) == 4, "message size should be 4 bytes");
+			return sizeof(*this);			
+			}
+
 	private:
 		Header		m_hdr;
 		MessageType	m_type;
@@ -252,6 +283,7 @@ public:
 		std::uint8_t	m_cs;
 		};
 
+	/// the standard data report message from sensor to computer.
 	class DataReport
 		{
 	public:
@@ -282,7 +314,7 @@ public:
 			return Error::kOk;
 			}
 
-		/// is the Data1 field valid?
+		/// query: is the Data1 field valid?
 		bool isOzonePpmValid() const
 			{
 			return this->m_type == MessageType::DATA_REPORT;
@@ -363,6 +395,12 @@ public:
 			return (std::uint8_t *) this;
 			}
 
+		/// return pointer to the message body (const version)
+		const std::uint8_t *getPointer() const
+			{
+			return (const std::uint8_t *) this;
+			}
+
 		/// get size of message body
 		size_t getSize() const
 			{
@@ -414,11 +452,13 @@ public:
 			return Error::kOk;
 			}
 
+		/// return the size of the name buffer in the message.
 		constexpr size_t getNameBufSize() const
 			{
 			return sizeof(this->m_sensorName) + 1;
 			}
 
+		/// extract the name to a buffer, checking some things carefully.
 		size_t getName(char *buf, size_t nbuf) const
 			{
 			if (buf == nullptr || nbuf == 0)
@@ -441,11 +481,13 @@ public:
 			return this->m_nameLength;
 			}
 
+		/// get version of sensor
 		std::uint8_t getVersion() const
 			{
 			return this->m_version;
 			}
 
+		/// get the (cooked) display format.
 		DisplayFormat getDisplayFormat() const
 			{
 			switch (this->m_display)
@@ -475,13 +517,20 @@ public:
 // at last, we get to the top-level object.
 //
 private:
+	/// the request type, used for HRequest_t, is internal only.
 	struct Request;
 	/// the default baudrate of the SM70
 	static constexpr std::uint32_t kBaud = 4800;
 
 public:
-	cSM70(cSerialAbstract *pSerialAbstract)
-		: m_pSerial(m_pSerial) 
+	/// constructor.
+	/// \param pSerialAbstract should point to a concrete object derived from cSerialAbstract.
+	/// \param txEnPin, if not -1, will be driven to 1 before transmits, otherwise 0.
+	/// \param rxEnPin, if not -1, will be driven to 0 before receives, otherwise 1.
+	cSM70(cSerialAbstract *pSerialAbstract, int txEnPin = -1, int rxEnPin = -1)
+		: m_pSerial(m_pSerial)
+		, m_txEnPin(txEnPin)
+		, m_rxEnPin(rxEnPin)
 		{}
 
         // neither copyable nor movable.
@@ -492,7 +541,8 @@ public:
 
 	/// the handle for request blobs
 	typedef struct Request *HRequest_t;
-	/// type for declaring completion functions
+
+	/// type for declaring completion functions for asynchronous operations
 	typedef void CompletionFn(HRequest_t hRequest, void *pUserData, Error errcode);
 
 	/// start operation.
@@ -515,23 +565,28 @@ public:
 	/// simple wrapper for synchronus info fetches
 	Error readInfo();
 
-	/// load a pointer to the data blob.
+	/// Return a pointer to the most recent data report.
+	/// It might not be valid, please use IsValid() to check.
 	DataReport *getData()
 		{
 		return &this->m_DataReport;
 		}
-	/// load a pointer to the info blob.
+
+	/// Return a pointer to the most recent info report.
+	/// It might not be valid, plase use IsValid() to check.
 	SensorInfoReport *getSensorInfo()
 		{
 		return &this->m_SensorInfo;
 		}
 
 private:
-	cSerialAbstract			*m_pSerial;
-	static const DataRequest	m_DataRequest;
-	static const SensorInfoRequest	m_SensorInfoRequest;
-	DataReport			m_DataReport;
-	SensorInfoReport		m_SensorInfo;
+	cSerialAbstract			*m_pSerial;		/// pointer to serial port
+	int				m_txEnPin;		/// transmit enable pin; -1 ==> disabled.
+	int				m_rxEnPin;		/// receive enable pin; -1 ==> disabled.
+	static const DataRequest	m_DataRequest;		/// pre-built data request block.
+	static const SensorInfoRequest	m_SensorInfoRequest;	/// pre-built info request block.
+	DataReport			m_DataReport;		/// most recently read data report.
+	SensorInfoReport		m_SensorInfo;		/// most recently read sensor info.
 	};
 
 } // namespace McciCatenaSm70

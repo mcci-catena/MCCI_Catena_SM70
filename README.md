@@ -26,7 +26,7 @@ This library implements RS485 communications with an [Aeroqual](https://www.aero
 - [Installation Procedure](#installation-procedure)
 - [Known Issues](#known-issues)
 - [To-Do List](#to-do-list)
-- [The `Sm70Serial<>` Template Class](#the-sm70serial-template-class)
+- [The `cSerial<>` Template Class](#the-cserial-template-class)
 - [Meta](#meta)
 	- [License](#license)
 	- [Contributors](#contributors)
@@ -84,11 +84,11 @@ TBD.
 
 TBD.
 
-## The `Sm70Serial<>` Template Class
+## The `cSerial<>` Template Class
 
 We want this library to compile with `SoftwareSerial` and `USBSerial` ports. A polymorphic pointer is needed at the top level to the "port" -- although `Serial`, `UART`, `USBSerial`, and `SoftwareSerial` share a common interface, there is no common abstract class in the standard Arduino library; and their methods aren't virtual.
 
-This library introduces the `cSerialPort` class, which has all the proper abstract semantics, and the `cSerial<T>` template class, which maps the abstract semantics of `cSerialPort` onto the concrete semantics of `T` (whatever `T` happens to be; provided that `T` conforms to the Serial API).
+This library introduces the `cSerialAbstract` class, which has all the proper abstract semantics, and the `cSerial<T>` template class, which maps the abstract semantics of `cSerialAbstract` onto the concrete semantics of `T` (whatever `T` happens to be; provided that `T` conforms to the Serial API).
 
 Declaring an SM70 instance takes two steps (which can be done in any order, provided you add suitable declarations).
 
@@ -105,9 +105,9 @@ Declaring an SM70 instance takes two steps (which can be done in any order, prov
    Of course, if you know that the type of `Serial2` is `UART`, you can also write:
 
    ```c++
-   // declare modbusSerial as a ModbusSerial<> object
-   // and map it onto Serial1:
-   ModbusSerial<UART> modbusSerial(&Serial2);
+   // declare sm70Serial as a cSerial<> object
+   // and map it onto Serial2:
+   cSerial<UART> sm70Serial(&Serial2);
    ```
 
    We tend to prefer the former form, as it makes the examples more portable.
