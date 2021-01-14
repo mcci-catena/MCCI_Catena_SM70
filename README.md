@@ -39,7 +39,7 @@ This library implements RS485 communications with an [Aeroqual](https://www.aero
 
 ## Terminology
 
-Modbus literature uses "host" and "slave". Time has moved on, so in this library, we use the terms "initiator" and "responder".
+Aeroqual literature uses "host" and "slave". Time has moved on, so in this library, we use the terms "computer" and "sensor".
 
 ## Library Contents
 
