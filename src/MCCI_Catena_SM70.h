@@ -26,6 +26,9 @@ Author:
 
 #pragma once
 
+#include <Catena_FSM.h>
+#include <Catena_PollableInterface.h>
+
 #include <Arduino.h>
 #include <cstdint>
 
@@ -99,6 +102,9 @@ public:
         virtual size_t write(const uint8_t *buffer, size_t size) const = 0;
 	/// shut down (e.g. for system sleep). Must be provided by concrete class.
         virtual void end() const = 0;
+
+    // register an object to be polled
+    virtual void registerPollableObject(McciCatena::cPollableObject *);
 
 	/// drain the read buffer. May be provided by concrete class; if not, a default
 	/// implementation is provided.
@@ -179,7 +185,7 @@ private:
         };
 
 /// represent an Aeroqual SM70 sensor connected via RS485
-class cSM70
+class cSM70 : public McciCatena::cPollableObject
 	{
 private:
 	/// calcuate checksum over a buffer.
@@ -354,9 +360,9 @@ public:
 			}
 
 		/// return pointer to the message body
-		std::uint8_t getPointer()
+		std::uint8_t *getPointer()
 			{
-			return (std::uint8_t) this;
+			return (std::uint8_t *) this;
 			}
 
 		/// get size of message body
@@ -380,6 +386,7 @@ public:
 	/// the sensor request message
 	class SensorInfoRequest
 		{
+	public:
 		/// constructor
 		SensorInfoRequest()
 			: m_hdr(Header::BASE)
@@ -419,7 +426,7 @@ public:
 	class SensorInfoReport
 		{
 	public:
-		SensorInfoReport() {}
+		SensorInfoReport() {};
 
 		std::uint8_t *getPointer()
 			{
@@ -453,7 +460,7 @@ public:
 			}
 
 		/// return the size of the name buffer in the message.
-		constexpr size_t getNameBufSize() const
+		size_t getNameBufSize() const
 			{
 			return sizeof(this->m_sensorName) + 1;
 			}
@@ -539,6 +546,23 @@ public:
         cSM70(const cSM70&&) = delete;
         cSM70& operator=(const cSM70&&) = delete;
 
+    // states of the finite state machine.
+    enum class State : int
+        {
+        stNoChange = -1,
+        stInitial = 0,
+        stNormal,
+		stDataRequest,
+		stSensorInfoRequest,
+		stFinal,
+        };
+
+    State fsmDispatch(State curState, bool fEntry);
+    void fsmEval(void)
+        {
+        this->m_fsm.eval();
+        }
+
 	/// the handle for request blobs
 	typedef struct Request *HRequest_t;
 
@@ -580,6 +604,10 @@ public:
 		}
 
 private:
+    // the FSM
+    McciCatena::cFSM <cSM70, State>
+                            m_fsm;
+
 	cSerialAbstract			*m_pSerial;		/// pointer to serial port
 	int				m_txEnPin;		/// transmit enable pin; -1 ==> disabled.
 	int				m_rxEnPin;		/// receive enable pin; -1 ==> disabled.
@@ -587,6 +615,26 @@ private:
 	static const SensorInfoRequest	m_SensorInfoRequest;	/// pre-built info request block.
 	DataReport			m_DataReport;		/// most recently read data report.
 	SensorInfoReport		m_SensorInfo;		/// most recently read sensor info.
+
+    CompletionFn *pDoneFn;
+    void *pUserData;
+
+    // event flags for FSM implementation
+    union
+        {
+        // view of all flags for quick reset.
+        uint32_t v;
+
+        // flags as individual bits
+        struct
+            {
+            bool Registered : 1;
+            bool Running : 1;
+            bool Exit : 1;
+            bool TxEnabled : 1;
+            bool RxEnabled : 1;
+            } b;
+        } m_flags;
 	};
 
 } // namespace McciCatenaSm70
