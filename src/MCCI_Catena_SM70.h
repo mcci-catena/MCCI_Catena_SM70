@@ -27,6 +27,7 @@ Author:
 #pragma once
 
 #include <Catena_FSM.h>
+#include <CatenaBase_types.h>
 #include <Catena_PollableInterface.h>
 
 #include <Arduino.h>
@@ -103,9 +104,6 @@ public:
 	/// shut down (e.g. for system sleep). Must be provided by concrete class.
         virtual void end() const = 0;
 
-    // register an object to be polled
-    virtual void registerPollableObject(McciCatena::cPollableObject *);
-
 	/// drain the read buffer. May be provided by concrete class; if not, a default
 	/// implementation is provided.
         virtual void drainRead() const
@@ -123,7 +121,7 @@ public:
                 {
                 this->drainWrite();
                 }
-        };
+		};
 
 /// declare a class derived from cSerialAbstract that uses a physical Arduino serial port of type T.
 template <class T> class cSerial : public cSerialAbstract
@@ -552,6 +550,7 @@ public:
         stNoChange = -1,
         stInitial = 0,
         stNormal,
+		stCheckPendingRequest,
 		stDataRequest,
 		stSensorInfoRequest,
 		stFinal,
@@ -566,11 +565,13 @@ public:
 	/// the handle for request blobs
 	typedef struct Request *HRequest_t;
 
+
+
 	/// type for declaring completion functions for asynchronous operations
 	typedef void CompletionFn(HRequest_t hRequest, void *pUserData, Error errcode);
 
 	/// start operation.
-	bool begin();
+	bool begin(McciCatena::CatenaBase& rCatena);
 	/// stop operation (e.g., before suspend)
 	void end();
 	/// drive the FSMs forward
@@ -616,8 +617,53 @@ private:
 	DataReport			m_DataReport;		/// most recently read data report.
 	SensorInfoReport		m_SensorInfo;		/// most recently read sensor info.
 
-    CompletionFn *pDoneFn;
-    void *pUserData;
+	enum class RequestCode_t: std::uint8_t
+		{
+		kReadInfo,
+		kReadData,
+		};
+
+	// the contents of a request
+	struct Request
+		{
+		Request	*pNext;					/// pointer to successor or to head of queue
+		Request *pLast;					/// pointer to predecessor or to tail of queue
+		RequestCode_t	requestCode;	/// kind of request
+		Error statusCode;				/// completion status.
+		void *pBuffer;					/// pointer to data buffer
+		size_t nBuffer;					/// size of data buffer
+		CompletionFn *pDoneFn;			/// user-supplied callback function
+		void *pUserData;				/// user-supplied info for callback
+		};
+
+	struct RqPool_t
+		{
+		static constexpr unsigned knRequests = 4;
+
+		Request				*m_pCurrent;	/// currently active request, or NULL if idle
+		Request				*m_pPending;	/// head of request queue.
+		Request				*m_pFree;		/// head of free request queue.
+
+		Request *allocate();
+		void free(Request *pRequest);
+
+		/// append request to request pool, make current if no current request,
+		/// return true if request is now the current request.
+		bool addPending(Request *pRequest);
+
+		/// free current request, promote new request, return true if more to do.
+		/// does not call completion routine (do that before calling this)
+		bool freeCurrent();
+
+		/// initialize request list
+		void init();
+
+		Request	m_Requests[knRequests];	/// pre-allocated requests
+		};
+
+	/// the pool of pre-allocated requests
+	RqPool_t m_RqPool;
+
 
     // event flags for FSM implementation
     union
@@ -630,6 +676,7 @@ private:
             {
             bool Registered : 1;
             bool Running : 1;
+			bool RequestsInitialized;
             bool Exit : 1;
             bool TxEnabled : 1;
             bool RxEnabled : 1;

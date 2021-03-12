@@ -20,13 +20,14 @@ Author:
 */
 
 #include "MCCI_Catena_SM70.h"
+#include <CatenaBase.h>
 
 using namespace McciCatenaSm70;
 
-bool cSM70::begin(){
+bool cSM70::begin(McciCatena::CatenaBase &rCatena){
     if (! this->m_flags.b.Registered)
         {
-        this->m_pSerial->registerPollableObject(this);
+        rCatena.registerObject(this);
         this->m_flags.b.Registered = true;
         }
 
@@ -37,6 +38,12 @@ bool cSM70::begin(){
         this->m_flags.b.RxEnabled = false;
         this->m_flags.b.Exit = false;
         this->m_fsm.init(*this, &cSM70::fsmDispatch);
+        }
+
+    if (! this->m_flags.b.RequestsInitialized)
+        {
+        this->m_RqPool.init();
+        this->m_flags.b.RequestsInitialized = true;
         }
 
     return true;
@@ -130,6 +137,7 @@ cSM70::fsmDispatch(
     )
     {
     State newState;
+    cSM70::Request request_t;
 
     newState = State::stNoChange;
 
@@ -147,7 +155,31 @@ cSM70::fsmDispatch(
             }
 
         this->m_pSerial->begin(this->kBaud);
-        newState = State::stDataRequest;
+        newState = State::stCheckPendingRequest;
+        }
+        break;
+
+    case State::stCheckPendingRequest:
+        {
+        if (fEntry)
+            {
+            /* nothing */
+            }
+
+        if(request_t.pNext != nullptr)
+            {
+            if(request_t.requestCode == cSM70::RequestCode_t::kReadData)
+                newState = State::stDataRequest;
+
+            else if(request_t.requestCode == cSM70::RequestCode_t::kReadData)
+                newState = State::stSensorInfoRequest;
+
+            else
+                newState = State::stCheckPendingRequest;
+            }
+
+        else
+            newState = State::stFinal;
         }
         break;
 
@@ -158,7 +190,7 @@ cSM70::fsmDispatch(
             /* nothing */
             }
 
-        newState = State::stSensorInfoRequest;
+        newState = State::stCheckPendingRequest;
         }
         break;
 
@@ -169,7 +201,7 @@ cSM70::fsmDispatch(
             /* nothing */
             }
 
-        newState = State::stFinal;
+        newState = State::stCheckPendingRequest;
         }
         break;
 
@@ -188,4 +220,107 @@ cSM70::fsmDispatch(
         }
 
     return newState;
+    }
+
+
+void cSM70::RqPool_t::init()
+    {
+    for (auto p = &this->m_Requests[0]; p < this->m_Requests + this->knRequests - 1; ++p)
+        {
+        this->free(p);
+        }
+    }
+
+
+void cSM70::RqPool_t::free(Request *pRequest)
+    {
+    Request *pTemp;
+
+    if (pRequest != NULL)
+        {
+        pRequest->pLast = NULL;
+        pRequest->pNext = NULL;
+        pRequest->pDoneFn = NULL;
+        pRequest->pUserData = NULL;
+        }
+    else
+        return;
+
+    if(this->m_pFree == NULL)
+        {
+        this->m_pFree = pRequest;
+        }
+    else
+        {
+        pTemp = this->m_pFree;
+        while(pTemp->pNext != NULL)
+            {
+            pTemp = pTemp->pNext;
+            }
+
+        pRequest->pLast = pTemp;
+        pTemp->pNext = pRequest;
+        }
+    }
+
+cSM70::Request* cSM70::RqPool_t::allocate()
+        {
+        Request *pTemp = this->m_pFree;
+        Request *pLast;
+        while(pTemp->pNext != NULL)
+            {
+            pLast = pTemp;
+            pTemp = pTemp->pNext;
+            }
+        pLast->pNext = NULL;
+        return pTemp;
+        }
+
+bool cSM70::RqPool_t::addPending(Request *pRequest)
+    {
+    Request *pTemp;
+
+    if(this->m_pPending == NULL)
+        {
+        this->m_pPending = pRequest;
+        this->m_pCurrent = pRequest;
+        return true;
+        }
+    else
+        {
+        pTemp = this->m_pPending;
+        while(pTemp->pNext != NULL)
+            {
+            pTemp = pTemp->pNext;
+            }
+
+        pRequest->pLast = pTemp;
+        pTemp->pNext = pRequest;
+        }
+    }
+
+bool cSM70::RqPool_t::freeCurrent()
+    {
+    Request *pCurrent;
+
+    if(this->m_pCurrent == NULL)
+        {
+        return false;
+        }
+    pCurrent = this->m_pCurrent;
+
+    /*No Next pending Request */
+    if(this->m_pPending->pNext == NULL)
+        {
+        this->m_pPending = NULL;
+        this->m_pCurrent = NULL;
+        }
+    else /*make next pending as pending head and current */
+        {
+        this->m_pPending = this->m_pPending->pNext;
+        this->m_pCurrent = this->m_pPending->pNext;
+        }
+
+    this->free(pCurrent);
+    return true;
     }

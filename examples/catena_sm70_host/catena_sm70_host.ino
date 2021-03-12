@@ -79,7 +79,7 @@ void setup() {
 	powerOn();		// turn on the transceiver.
 	boostpowerOff();	// turn off the boost regulator
 	gCatena.begin();	// set up the framework
-	gSm70.begin();	// baud-rate at 4800
+	gSm70.begin(gCatena);	// baud-rate at 4800
 }
 
 void loop() {
