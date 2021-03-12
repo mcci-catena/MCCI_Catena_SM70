@@ -91,37 +91,46 @@ public:
         cSerialAbstract(const cSerialAbstract&&) = delete;
         cSerialAbstract& operator=(const cSerialAbstract&&) = delete;
 
-	/// initialze and set baud rate. Must be provided by concrete class
+        /// initialize and set baud rate. Must be provided by concrete class
         virtual void begin(unsigned long baudrate) const = 0;
-	/// initialize, set baud rate and configuration. Must be provided by concrete class.
+
+        /// initialize, set baud rate and configuration. Must be provided by concrete class.
         virtual void begin(unsigned long baudrate, uint16_t config) const = 0;
-	/// return count of bytes available in rx buffer. Must be provided by concrete class.
+
+        /// return count of bytes available in rx buffer. Must be provided by concrete class.
         virtual int available() const = 0;
-	/// read a byte from the rx buffer. Must be provided by concrete class.
+
+        /// return count of bytes available in tx buffer. Must be provided by concrete class.
+		virtual int availableForWrite() const = 0;
+
+        /// read a byte from the rx buffer. Must be provided by concrete class.
         virtual int read() const = 0;
-	/// write a buffer; uses output buffer, but blocks if buffer is full.
+
+        /// write a buffer; uses output buffer, but blocks if buffer is full.
         virtual size_t write(const uint8_t *buffer, size_t size) const = 0;
-	/// shut down (e.g. for system sleep). Must be provided by concrete class.
+
+        /// shut down (e.g. for system sleep). Must be provided by concrete class.
         virtual void end() const = 0;
 
-	/// drain the read buffer. May be provided by concrete class; if not, a default
-	/// implementation is provided.
+        /// drain the read buffer. May be provided by concrete class; if not, a default
+        /// implementation is provided.
         virtual void drainRead() const
                 {
                 while (this->read() >= 0)
                         /* discard */;
                 }
-	/// drain the write buffer. Must be provided by concrete class.
+
+		/// drain the write buffer. Must be provided by concrete class.
         virtual void drainWrite() const = 0;
 
         /// provided as a synonym for drainWrite, so that we
         /// have the complete Arduino::Uart interface. May be overridded
-	/// by concrete class.
+        /// by concrete class.
         virtual void flush() const
                 {
                 this->drainWrite();
                 }
-		};
+        };
 
 /// declare a class derived from cSerialAbstract that uses a physical Arduino serial port of type T.
 template <class T> class cSerial : public cSerialAbstract
@@ -136,43 +145,49 @@ public:
         cSerial(const cSerial&&) = delete;
         cSerial& operator=(const cSerial&&) = delete;
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual available() method onto Arduino port's method.
         virtual int available() const override
                 {
                 return this->m_pPort->available();
                 }
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual availableForWrite() method onto Arduio port's method
+		virtual int availableForWrite() const override
+				{
+				return this->m_pPort->availableForWrite();
+				}
+
+        /// map virtual begin() method onto Arduino port's method.
         virtual void begin(unsigned long ulBaudRate) const override
                 {
                 this->m_pPort->begin(ulBaudRate);
                 }
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual begin() method onto Arduino port's method.
         virtual void begin(unsigned long ulBaudRate, uint16_t config) const override
                 {
                 this->m_pPort->begin(ulBaudRate, config);
                 }
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual drainWrite() method onto Arduino port's method.
         virtual void drainWrite() const override
                 {
                 this->m_pPort->flush();
                 }
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual read() method onto Arduino port's method.
         virtual int read() const override
                 {
                 return this->m_pPort->read();
                 }
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual write() method onto Arduino port's method.
         virtual size_t write(const uint8_t *buffer, size_t size) const override
                 {
                 return this->m_pPort->write(buffer, size);
                 }
 
-	/// map virtual method onto Arduino port's method.
+        /// map virtual end() method onto Arduino port's method.
         virtual void end() const override
                 {
                 this->m_pPort->end();
@@ -551,7 +566,10 @@ public:
         stInitial = 0,
         stNormal,
 		stCheckPendingRequest,
-		stDataRequest,
+		stSendingRequest,
+		stDrainTx,
+		stEnableRx,
+		stRequestDone,
 		stSensorInfoRequest,
 		stFinal,
         };
@@ -610,12 +628,22 @@ private:
                             m_fsm;
 
 	cSerialAbstract			*m_pSerial;		/// pointer to serial port
-	int				m_txEnPin;		/// transmit enable pin; -1 ==> disabled.
-	int				m_rxEnPin;		/// receive enable pin; -1 ==> disabled.
+	int				m_txEnPin;				/// transmit enable pin; -1 ==> disabled.
+	int				m_rxEnPin;				/// receive enable pin; -1 ==> disabled.
 	static const DataRequest	m_DataRequest;		/// pre-built data request block.
 	static const SensorInfoRequest	m_SensorInfoRequest;	/// pre-built info request block.
 	DataReport			m_DataReport;		/// most recently read data report.
-	SensorInfoReport		m_SensorInfo;		/// most recently read sensor info.
+	SensorInfoReport	m_SensorInfo;		/// most recently read sensor info.
+	int				m_txEmptyBytes;			/// the "availableForWrite" value when tx is empty.
+	uint32_t		m_rxEnableMicros;		/// time stamp when we enabled RX.
+	uint32_t		m_txEmptyMicros;		/// time stamp when we drain TX.
+
+	template <class C>
+	void startTransaction(const C request)
+		{
+		startTransferRequest((const void *)&request, sizeof(request));
+		}
+	void startTransferRequest(const void *pRequestBytes, size_t nRequestBytess);
 
 	enum class RequestCode_t: std::uint8_t
 		{
@@ -630,11 +658,17 @@ private:
 		Request *pLast;					/// pointer to predecessor or to tail of queue
 		RequestCode_t	requestCode;	/// kind of request
 		Error statusCode;				/// completion status.
-		void *pBuffer;					/// pointer to data buffer
+		std::uint8_t *pBuffer;			/// pointer to data buffer
 		size_t nBuffer;					/// size of data buffer
+		size_t nActual;					/// number of bytes read into buffer actually.
 		CompletionFn *pDoneFn;			/// user-supplied callback function
 		void *pUserData;				/// user-supplied info for callback
 		};
+
+	/// append request to a queue, return true if list went from empty to non-empty
+	static bool listAppend(Request *&pHead, Request *pRequest);
+	/// remove request from queue
+	static void listRemove(Request *&pHead, Request *pRequest);
 
 	struct RqPool_t
 		{
