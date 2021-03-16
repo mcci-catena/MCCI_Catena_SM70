@@ -119,8 +119,7 @@ public:
                 while (this->read() >= 0)
                         /* discard */;
                 }
-
-		/// drain the write buffer. Must be provided by concrete class.
+        /// drain the write buffer. Must be provided by concrete class.
         virtual void drainWrite() const = 0;
 
         /// provided as a synonym for drainWrite, so that we
@@ -548,7 +547,7 @@ public:
 	/// \param txEnPin, if not -1, will be driven to 1 before transmits, otherwise 0.
 	/// \param rxEnPin, if not -1, will be driven to 0 before receives, otherwise 1.
 	cSM70(cSerialAbstract *pSerialAbstract, int txEnPin = -1, int rxEnPin = -1)
-		: m_pSerial(m_pSerial)
+		: m_pSerial(pSerialAbstract)
 		, m_txEnPin(txEnPin)
 		, m_rxEnPin(rxEnPin)
 		{}
@@ -570,15 +569,11 @@ public:
 		stDrainTx,
 		stEnableRx,
 		stRequestDone,
-		stSensorInfoRequest,
+		stValidate,
 		stFinal,
         };
 
     State fsmDispatch(State curState, bool fEntry);
-    void fsmEval(void)
-        {
-        this->m_fsm.eval();
-        }
 
 	/// the handle for request blobs
 	typedef struct Request *HRequest_t;
@@ -643,7 +638,7 @@ private:
 		{
 		startTransferRequest((const void *)&request, sizeof(request));
 		}
-	void startTransferRequest(const void *pRequestBytes, size_t nRequestBytess);
+	void startTransferRequest(const void *pRequestBytes, size_t nRequestBytes);
 
 	enum class RequestCode_t: std::uint8_t
 		{

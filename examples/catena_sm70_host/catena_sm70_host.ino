@@ -27,7 +27,8 @@ using namespace McciCatenaSm70;
 Catena gCatena;
 
 cSerial<decltype(Serial2)> sm70Serial(&Serial2);
-cSM70 gSm70(&sm70Serial, D12, D12); // this is host and RS-232 or USB-FTDI
+// this is host and RS-232 or USB-FTDI
+cSM70 gSm70(&sm70Serial, D12, D12); // for 4801 pin D12 is Tx and Rx
 
 cSM70::HRequest_t hRequestType;
 cSM70::Error errorType;
@@ -79,18 +80,25 @@ void setup() {
 	powerOn();		// turn on the transceiver.
 	boostpowerOff();	// turn off the boost regulator
 	gCatena.begin();	// set up the framework
-	gSm70.begin(gCatena);	// baud-rate at 4800
+	gSm70.begin(gCatena);	// start and initialize SM70
 }
+
+void startReadData_cmpltn(cSM70::HRequest_t hRequest, void *pUserData, cSM70::Error errcode)
+	{
+	gCatena.SafePrintf("Start Read Data Return done\n");
+	}
+
+void startReadInfo_cmpltn(cSM70::HRequest_t hRequest, void *pUserData, cSM70::Error errcode)
+	{
+	gCatena.SafePrintf("Start Read Info Return done\n");
+	}
 
 void loop() {
 	gCatena.poll(); // check incoming messages & drive things along.
-  gSm70.poll();
-}
 
-/*void startReadData_cmpltn(hRequestType hRequest, void *pUserData, errorType errcode){
-
-}
-
-void startReadInfo_cmpltn(hRequestType hRequest, void *pUserData, errorType errcode){
+	gCatena.SafePrintf("Start Read Data to be called\n");
+	gSm70.startReadData(startReadData_cmpltn, nullptr);
 	
-}*/
+	gCatena.SafePrintf("Start Read Info to be called\n");
+	gSm70.startReadInfo(startReadInfo_cmpltn, nullptr);
+}

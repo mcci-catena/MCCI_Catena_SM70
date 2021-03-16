@@ -29,6 +29,10 @@ bool cSM70::begin(McciCatena::CatenaBase &rCatena){
         {
         rCatena.registerObject(this);
         this->m_flags.b.Registered = true;
+        pinMode(this->m_txEnPin, OUTPUT);
+        pinMode(this->m_rxEnPin, OUTPUT);
+        digitalWrite(this->m_txEnPin, 1);
+        digitalWrite(this->m_rxEnPin, 1);
         }
 
     if (! this->m_flags.b.Running)
@@ -56,14 +60,14 @@ void cSM70::end(){
         while (this->m_flags.b.Running)
             this->m_fsm.eval();
         }
-}
+    }
 
 void cSM70::poll(){
     if(this->m_rxEnPin){
 		int current = m_pSerial->available();
 
 		if (!current)
-			this->fsmEval();
+			this->m_fsm.eval();
 		}
 	}
 
@@ -72,40 +76,49 @@ void cSM70::cancel(HRequest_t hRequest){
 }
 
 cSM70::HRequest_t cSM70::startReadData(CompletionFn *pDoneFn, void *pUserData){
-	this->m_pSerial->write(this->m_DataRequest.getPointer(), 4);
-	this->readData();
-    // return
-}
+    Request *pReadRequest = this->m_RqPool.allocate();
+    pReadRequest->pDoneFn = pDoneFn;
+    pReadRequest->pUserData = pUserData;
+    pReadRequest->requestCode = RequestCode_t::kReadData;
+    this->m_RqPool.addPending(pReadRequest);
+
+    return pReadRequest;
+    }
 
 cSM70::HRequest_t cSM70::startReadInfo(CompletionFn *pDoneFn, void *pUserData){
-	this->m_pSerial->write(this->m_SensorInfoRequest.getPointer(), 4);
-	this->readInfo();
-	// return
-}
+    Request *pReadRequest = this->m_RqPool.allocate();
+    pReadRequest->pDoneFn = pDoneFn;
+    pReadRequest->pUserData = pUserData;
+    pReadRequest->requestCode = RequestCode_t::kReadInfo;
+    this->m_RqPool.addPending(pReadRequest);
 
+    return pReadRequest;
+    }
+
+/*
 cSM70::Error cSM70::readData(){
-	uint8_t * pDataReport = this->m_DataReport.getPointer();
-	uint8_t dataReportIndex = 0;
+    auto * pDataReport = this->m_DataReport.getPointer();
+    uint8_t dataReportIndex = 0;
 
-	while(dataReportIndex < 15){
-		*(pDataReport + dataReportIndex) =  this->m_pSerial->read();
-		++dataReportIndex;
-		}
+    while(dataReportIndex < 15){
+        *(pDataReport + dataReportIndex) =  this->m_pSerial->read();
+        ++dataReportIndex;
+        }
 
-	return this->m_DataReport.isValid();
-}
+    return this->m_DataReport.isValid();
+    }
 
 cSM70::Error cSM70::readInfo(){
-	uint8_t * pSensorInfo = this->m_SensorInfo.getPointer();
-	uint8_t sensorInfoIndex = 0;
+    auto * pSensorInfo = this->m_SensorInfo.getPointer();
+    uint8_t sensorInfoIndex = 0;
 
-	while(sensorInfoIndex < 15){
-		*(pSensorInfo + sensorInfoIndex) =  this->m_pSerial->read();
-		++sensorInfoIndex;
-		}
+    while(sensorInfoIndex < 15){
+        *(pSensorInfo + sensorInfoIndex) =  this->m_pSerial->read();
+        ++sensorInfoIndex;
+        }
 
-	return this->m_SensorInfo.isValid();
-}
+    return this->m_SensorInfo.isValid();
+    } */
 
 /*
 
@@ -174,6 +187,8 @@ cSM70::fsmDispatch(
                     // send the data request. Call a function that will:
                     // 1. turn on the transceiver
                     // 2. send the pre-canned data reqeust
+                    this->m_txEmptyBytes = this->m_pSerial->availableForWrite();
+
                     startTransaction(this->m_DataRequest);
                     newState = State::stSendingRequest;
                     }
@@ -232,8 +247,7 @@ cSM70::fsmDispatch(
 
             if (fEntry)
                 {
-                pinMode(this->m_txEnPin, INPUT);
-                pinMode(this->m_rxEnPin, OUTPUT);
+                digitalWrite(this->m_txEnPin, 0);
                 digitalWrite(this->m_rxEnPin, 0);
                 this->m_rxEnableMicros = micros();
                 this->m_pSerial->drainRead();
@@ -253,6 +267,7 @@ cSM70::fsmDispatch(
                 newState = State::stRequestDone;
             // otherwise no change.
             break;
+            }
 
         case State::stRequestDone:
             {
@@ -260,19 +275,34 @@ cSM70::fsmDispatch(
 
             if (fEntry)
                 {
-                pinMode(this->m_rxEnPin, INPUT);
+                digitalWrite(this->m_txEnPin, 1);
+                digitalWrite(this->m_rxEnPin, 1);
                 }
 
             // based on type of request, validate response
             // complete client request
             // go on to next request
+            newState = State::stValidate;
             }
+            break;
 
-        case State::stSensorInfoRequest:
+        case State::stValidate:
             {
             if (fEntry)
                 {
                 /* nothing */
+                }
+
+            Request * const pCurrent = this->m_RqPool.m_pCurrent;
+
+            if (pCurrent->requestCode == cSM70::RequestCode_t::kReadData)
+                {
+                pCurrent->pDoneFn(pCurrent, pCurrent->pUserData, this->m_DataReport.isValid());
+                }
+
+            else if (pCurrent->requestCode == cSM70::RequestCode_t::kReadInfo)
+                {
+                pCurrent->pDoneFn(pCurrent, pCurrent->pUserData, this->m_SensorInfo.isValid());
                 }
 
             newState = State::stCheckPendingRequest;
@@ -293,8 +323,7 @@ cSM70::fsmDispatch(
             break;
             }
 
-        return newState;
-        }
+    return newState;
     }
 
 
@@ -304,6 +333,23 @@ void cSM70::RqPool_t::init()
         {
         this->free(p);
         }
+    }
+
+void cSM70::startTransferRequest(const void *pRequestBytes, size_t nRequestBytess)
+    {
+	auto * pDataRequest = this->m_DataRequest.getPointer();
+	auto * pSensorInfoRequest = this->m_SensorInfoRequest.getPointer();
+
+    if (pRequestBytes == pDataRequest)
+        {
+        this->m_pSerial->write(pDataRequest, 4);
+        }
+
+    else if (pRequestBytes == pSensorInfoRequest)
+        {
+        this->m_pSerial->write(pSensorInfoRequest, 4);
+        }
+    return;
     }
 
 bool cSM70::listAppend(Request *&pHead, Request *pRequest)
@@ -383,14 +429,14 @@ void cSM70::listRemove(Request *&pHead, Request *pRequest)
     }
 
 cSM70::Request* cSM70::RqPool_t::allocate()
-        {
-        Request * const pHead = this->m_pFree;
+    {
+    Request * const pHead = this->m_pFree;
 
-        // listRemove() will check for empty list
-        listRemove(this->m_pFree, pHead);
+    // listRemove() will check for empty list
+    listRemove(this->m_pFree, pHead);
 
-        return pHead;
-        }
+    return pHead;
+    }
 
 bool cSM70::RqPool_t::addPending(Request *pRequest)
     {
