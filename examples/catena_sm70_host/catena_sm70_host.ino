@@ -85,12 +85,24 @@ void setup() {
 
 void startReadData_cmpltn(cSM70::HRequest_t hRequest, void *pUserData, cSM70::Error errcode)
 	{
-	gCatena.SafePrintf("Start Read Data Return done\n");
+	if (errcode == cSM70::Error::kOk)
+		{
+		gCatena.SafePrintf("Data is valid");
+		gCatena.SafePrintf("Data: %u", pUserData);
+		}
+	else
+		gCatena.SafePrintf("Data is not valid");
 	}
 
 void startReadInfo_cmpltn(cSM70::HRequest_t hRequest, void *pUserData, cSM70::Error errcode)
 	{
-	gCatena.SafePrintf("Start Read Info Return done\n");
+	if (errcode == cSM70::Error::kOk)
+		{
+		gCatena.SafePrintf("Sensor info is valid");
+		gCatena.SafePrintf("Sensor info: %u", pUserData);
+		}
+	else
+		gCatena.SafePrintf("Sensor info is not valid");
 	}
 
 void loop() {
@@ -98,7 +110,9 @@ void loop() {
 
 	gCatena.SafePrintf("Start Read Data to be called\n");
 	gSm70.startReadData(startReadData_cmpltn, nullptr);
+	delay(5000);
 	
 	gCatena.SafePrintf("Start Read Info to be called\n");
 	gSm70.startReadInfo(startReadInfo_cmpltn, nullptr);
+	delay(5000);
 }

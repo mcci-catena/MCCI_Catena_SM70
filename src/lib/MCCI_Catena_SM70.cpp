@@ -63,13 +63,13 @@ void cSM70::end(){
     }
 
 void cSM70::poll(){
-    if(this->m_rxEnPin){
-		int current = m_pSerial->available();
+    if(this->m_rxEnPin)
+        int current = m_pSerial->available();
 
-		if (!current)
-			this->m_fsm.eval();
-		}
-	}
+    if (!current)
+        this->m_fsm.eval();
+    }
+
 
 void cSM70::cancel(HRequest_t hRequest){
 
@@ -82,6 +82,8 @@ cSM70::HRequest_t cSM70::startReadData(CompletionFn *pDoneFn, void *pUserData){
     pReadRequest->requestCode = RequestCode_t::kReadData;
     this->m_RqPool.addPending(pReadRequest);
 
+    // (*pReadRequest->pDoneFn)(pReadRequest, pReadRequest->pUserData, pReadRequest->statusCode);
+    // this->m_RqPool.freeCurrent();
     return pReadRequest;
     }
 
@@ -92,6 +94,8 @@ cSM70::HRequest_t cSM70::startReadInfo(CompletionFn *pDoneFn, void *pUserData){
     pReadRequest->requestCode = RequestCode_t::kReadInfo;
     this->m_RqPool.addPending(pReadRequest);
 
+    // (*pReadRequest->pDoneFn)(pReadRequest, pReadRequest->pUserData, pReadRequest->statusCode);
+    // this->m_RqPool.freeCurrent();
     return pReadRequest;
     }
 
@@ -260,6 +264,8 @@ cSM70::fsmDispatch(
                 ++pCurrent->nActual;
                 }
 
+            pCurrent->pUserData = pCurrent->pBuffer;
+
             // otherwise check for timeout
             if (pCurrent->nActual >= pCurrent->nBuffer)
                 newState = State::stRequestDone;
@@ -297,12 +303,14 @@ cSM70::fsmDispatch(
 
             if (pCurrent->requestCode == cSM70::RequestCode_t::kReadData)
                 {
-                pCurrent->pDoneFn(pCurrent, pCurrent->pUserData, this->m_DataReport.isValid());
+                (*pCurrent->pDoneFn)(pCurrent, pCurrent->pUserData, this->m_DataReport.isValid());
+                this->m_RqPool.freeCurrent();
                 }
 
             else if (pCurrent->requestCode == cSM70::RequestCode_t::kReadInfo)
                 {
-                pCurrent->pDoneFn(pCurrent, pCurrent->pUserData, this->m_SensorInfo.isValid());
+                (*pCurrent->pDoneFn)(pCurrent, pCurrent->pUserData, this->m_SensorInfo.isValid());
+                this->m_RqPool.freeCurrent();
                 }
 
             newState = State::stCheckPendingRequest;
@@ -357,7 +365,7 @@ bool cSM70::listAppend(Request *&pHead, Request *pRequest)
     if (pRequest == nullptr)
         return false;
 
-    if( pHead == NULL)
+    if( pHead == nullptr)
         {
         pRequest->pNext = pRequest;
         pRequest->pLast = pRequest;

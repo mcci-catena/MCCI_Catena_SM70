@@ -578,8 +578,6 @@ public:
 	/// the handle for request blobs
 	typedef struct Request *HRequest_t;
 
-
-
 	/// type for declaring completion functions for asynchronous operations
 	typedef void CompletionFn(HRequest_t hRequest, void *pUserData, Error errcode);
 
